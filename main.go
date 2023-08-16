@@ -20,7 +20,7 @@ func createTasks(c *gin.Context) {
 	// Bind JSON data to 'task' struct
 	var task models.ToDo
 	if err := c.ShouldBindJSON(&task); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	// Prepare the SQL statement for inserting description and status, returning the newly generated ID
@@ -91,11 +91,19 @@ func updateTask(c *gin.Context) {
 		return
 	}
 
-	// Set the task ID and update the task details in the slice
-	task.ID = id
-	todotasks[id] = task
-	task.Status = "to-do"
+	// Prepare the SQL statement for updating description and status
+	stmt, err := db.Prepare("UPDATE todoapi SET description = $1, status = $2 WHERE id = $3 RETURNING id, description, status")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stmt.Close()
 
+	// Execute the prepared statement and scan the updated task data
+	err = stmt.QueryRow(task.Description, "to-do", id).Scan(&task.ID, &task.Description, &task.Status)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update task"})
+		return
+	}
 	// Respond with the updated task
 	c.JSON(http.StatusOK, task)
 }
