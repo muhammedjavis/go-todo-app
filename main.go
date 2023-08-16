@@ -91,14 +91,14 @@ func updateTask(c *gin.Context) {
 		return
 	}
 
-	// Prepare the SQL statement for updating description and status
+	// Prepare the SQL statement for updating description and status on db and returns id,description,status for scanning to task variable later
 	stmt, err := db.Prepare("UPDATE todoapi SET description = $1, status = $2 WHERE id = $3 RETURNING id, description, status")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer stmt.Close()
 
-	// Execute the prepared statement and scan the updated task data
+	// Execute the prepared statement with values for respective placeholders in the prepared SQL and scan the updated task data to task variable for displaying in JSON response
 	err = stmt.QueryRow(task.Description, "to-do", id).Scan(&task.ID, &task.Description, &task.Status)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update task"})
@@ -115,8 +115,18 @@ func deleteTask(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"}) // Respond with an error if the task is not found
 		return
 	}
-	// Remove the task from the todotasks slice by appending tasks that are before and after the index id and excludes the task with id index
-	todotasks = append(todotasks[:id], todotasks[id+1:]...)
+
+	// Prepare the SQL statement for deleting a task(row)
+	stmt, err := db.Prepare("DELETE from todoapi where id=$1")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stmt.Close()
+	//Executing the prepared statement for the id variable retrieved from get TaskID function
+	_, err = stmt.Exec(id)
+	if err != nil {
+		log.Fatal(err)
+	}
 	// Response with "message" : "Task deleted"
 	c.JSON(http.StatusOK, gin.H{"message": "Task deleted"})
 }
@@ -128,10 +138,21 @@ func markTaskAsDone(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
 		return
 	}
-	// Change the task status of the task with index 'id' to "Done"
-	todotasks[id].Status = "Done"
-	// Respond with the updated task with the new task status as "done"
-	c.JSON(http.StatusOK, todotasks[id])
+	// Preparing the SQL statement for changing the status of the task to "Done" for id
+	stmt, err := db.Prepare("UPDATE todoapi SET status = $1 WHERE id = $2")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stmt.Close()
+
+	// Execute the prepared statement and changes the status to "Done" for id in the URL
+	_, err = stmt.Exec("Done", id)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	// Response with "message: Task marked as Done"
+	c.JSON(http.StatusOK, gin.H{"message": "Task marked as Done"})
 }
 
 func main() {
@@ -146,6 +167,6 @@ func main() {
 	r.PUT("/tasks/:id", updateTask)          // Update a task using PUT
 	r.DELETE("/tasks/:id", deleteTask)       // Delete a task using DELETE
 	r.PUT("/tasks/:id/done", markTaskAsDone) // Mark a task as done using PUT
-	r.Run()                                  // Start the server
+	r.Run(":3000")                           // Start the server at localhost:3000
 
 }
