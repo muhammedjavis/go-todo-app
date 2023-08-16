@@ -1,41 +1,66 @@
 package main
 
 import (
-	"go-todo/model"
+	"database/sql"
+	"go-todo/models"
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/lib/pq"
 )
 
 // Defined a slice todotasks to store the tasks
-var todotasks []model.ToDo
-
-// Variable to keep track of the task IDs. like a counter which increments when a new task is created.
-var taskIDcount int
+var todotasks []models.ToDo
+var db *sql.DB
 
 // function to create a new task
 func createTasks(c *gin.Context) {
-	var task model.ToDo
+	// Bind JSON data to 'task' struct
+	var task models.ToDo
 	if err := c.ShouldBindJSON(&task); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// Assign a unique ID from ID counter to the task and increments the ID count and also assigns "to-do" status to the task
+	// Prepare the SQL statement for inserting description and status, returning the newly generated ID
+	stmt, err := db.Prepare("INSERT INTO todoapi (description, status) VALUES ($1, $2) RETURNING id")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer stmt.Close()
+	var newID int // To store the new ID returned by RETURNING from db.Prepare
 
-	task.ID = taskIDcount
-	taskIDcount++
+	// Execute the prepared statement and scan the new ID
+	err = stmt.QueryRow(task.Description, "to-do").Scan(&newID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	task.ID = newID
 	task.Status = "to-do"
-
-	// appends the new task to the todotasks slice
-	todotasks = append(todotasks, task)
-
 	// Respond with the newly created task
 	c.JSON(http.StatusCreated, task)
 }
 
-// function to retrieve all todo tasks from the slice
+// function to retrieve all todo tasks from database
 func getTasks(c *gin.Context) {
+	c.Header("Content-Type", "application/json")
+	// Query all tasks from the database and saved in variable rows
+	rows, err := db.Query("SELECT id,description,status FROM todoapi")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+	// Loop through the result rows and transfer rows to 'todotasks' slice
+	for rows.Next() {
+		var task models.ToDo
+		err := rows.Scan(&task.ID, &task.Description, &task.Status)
+		if err != nil {
+			log.Fatal(err)
+		}
+		todotasks = append(todotasks, task)
+	}
+
 	// responds with every task in the slice
 	c.JSON(http.StatusOK, todotasks)
 }
@@ -59,7 +84,7 @@ func updateTask(c *gin.Context) {
 		return
 	}
 
-	var task model.ToDo
+	var task models.ToDo
 	//binds the request body to task variable
 	if err := c.ShouldBindJSON(&task); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()}) // Respond with an error if there's a problem with JSON binding
@@ -102,6 +127,11 @@ func markTaskAsDone(c *gin.Context) {
 }
 
 func main() {
+	var err error
+	db, err = sql.Open("postgres", "postgres://postgres:postgres@localhost/postgres?sslmode=disable")
+	if err != nil {
+		log.Fatal(err)
+	}
 	r := gin.Default()                       // created gin router
 	r.POST("/tasks", createTasks)            // Create a new task using POST
 	r.GET("/tasks", getTasks)                // Retrieve all tasks using GET
